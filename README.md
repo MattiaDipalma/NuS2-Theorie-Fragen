@@ -128,11 +128,15 @@ Geheimnisse im Repository, kein Hosting-Konto.
 
 `.github/workflows/pages.yml` bündelt bei jedem Push auf `main` die Claude-Anbindung
 (`quelle/claude.js` → `web/claude.js`) und lädt den Ordner `web/` zu GitHub Pages hoch.
-Einmalig muss die Quelle umgestellt werden:
+
+Der Workflow versucht, Pages beim ersten Lauf selbst einzuschalten. Bricht er
+trotzdem mit `Get Pages site failed … Not Found` ab, muss die Quelle einmalig von
+Hand umgestellt werden:
 
 > Repository → **Settings** → **Pages** → *Build and deployment* → **Source: GitHub Actions**
 
-Danach ist die Seite für alle erreichbar unter
+Danach den Workflow unter *Actions* nochmal starten (*Re-run all jobs*). Die Seite
+ist dann für alle erreichbar unter
 <https://mattiadipalma.github.io/NuS2-Theorie-Fragen/>.
 
 Jede Besucherin trägt bei Bedarf ihren eigenen Schlüssel ein (siehe oben) und zahlt
