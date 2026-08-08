@@ -41,6 +41,25 @@
     </div>
 
     <div class="gruppe">
+      <div class="gruppen-titel">Claude-Erklärungen</div>
+      <div class="schluessel-status" id="schluesselStatus"></div>
+      <div id="schluesselFeld">
+        <input type="password" id="schluesselEingabe" class="suche schluessel-eingabe"
+               placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+        <button class="knopf breit" id="schluesselSpeichern">Schlüssel speichern</button>
+        <div class="schluessel-hilfe">
+          Eigener Schlüssel von
+          <a href="https://console.anthropic.com/settings/keys" target="_blank"
+             rel="noopener">console.anthropic.com</a>.
+          Er bleibt in diesem Browser und wird nur an Anthropic geschickt –
+          jede Person zahlt ihre eigenen Anfragen.
+        </div>
+      </div>
+      <button class="knopf breit gefahr versteckt" id="schluesselLoeschen">Schlüssel entfernen</button>
+      <div class="schluessel-meldung" id="schluesselMeldung"></div>
+    </div>
+
+    <div class="gruppe">
       <div class="gruppen-titel">Fortschritt</div>
       <div class="balken"><div class="balken-fuellung" id="balken"></div></div>
       <div class="fortschritt-text" id="fortschrittText"></div>
@@ -75,7 +94,7 @@
   </main>
 </div>
 
-<script src="konfig.js"></script>
+<script src="claude.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

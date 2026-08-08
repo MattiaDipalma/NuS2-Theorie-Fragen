@@ -6,13 +6,18 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
+    "build": "esbuild quelle/claude.js --bundle --format=iife --minify --target=es2020 --platform=browser --alias:node:fs=./quelle/kein-node.js --alias:node:path=./quelle/kein-node.js --outfile=web/claude.js",
+    "prestart": "npm run build",
     "start": "node server.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.116.0",
     "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
+    "esbuild": "^0.25.0"
   }
 }

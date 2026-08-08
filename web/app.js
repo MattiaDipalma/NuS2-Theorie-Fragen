@@ -391,13 +391,59 @@ function zeigeLoesung(f, selbstkontrolle) {
 }
 
 /* ── Claude ───────────────────────────────────────────────────────── */
+/* Jede Person benutzt ihren eigenen API-Schlüssel. Er liegt nur hier im
+   Browser und geht direkt an api.anthropic.com – die Seite hat keinen
+   Server, der ihn sehen oder weitergeben könnte. */
+const SCHLUESSEL_FACH = SPEICHER + '-api-schluessel';
+
+const ladeSchluessel  = () => localStorage.getItem(SCHLUESSEL_FACH) || '';
+const setzeSchluessel = (s) => s
+  ? localStorage.setItem(SCHLUESSEL_FACH, s)
+  : localStorage.removeItem(SCHLUESSEL_FACH);
+
+function zeichneSchluesselfeld() {
+  const vorhanden = !!ladeSchluessel();
+  $('#schluesselStatus').innerHTML = vorhanden
+    ? `<span class="ok-punkt"></span>Schlüssel gespeichert`
+    : `Kein Schlüssel – Erklärfunktion aus`;
+  $('#schluesselFeld').classList.toggle('versteckt', vorhanden);
+  $('#schluesselLoeschen').classList.toggle('versteckt', !vorhanden);
+}
+
+async function speichereSchluessel() {
+  const eingabe = $('#schluesselEingabe');
+  const meldung = $('#schluesselMeldung');
+  const wert    = eingabe.value.trim();
+  if (!wert) return;
+
+  meldung.textContent = 'Prüfe …';
+  const fehler = await window.NUS2_CLAUDE.pruefeSchluessel(wert);
+  if (fehler) {
+    meldung.textContent = fehler;
+    return;
+  }
+
+  setzeSchluessel(wert);
+  eingabe.value = '';
+  meldung.textContent = '';
+  zeichneSchluesselfeld();
+  zeichneKarte();
+}
+
 let laeuft = null;
 
 async function frageClaude(f) {
   if (laeuft) { laeuft.abort(); laeuft = null; }
 
-  const eingabe = $('#claudeFrage').value.trim();
+  const schluessel = ladeSchluessel();
   const ausgabe = $('#claudeAusgabe');
+  if (!schluessel) {
+    ausgabe.innerHTML = `<div class="banner falsch"><span class="etikett">Kein Schlüssel</span>
+      Trage links in der Seitenleiste deinen eigenen Claude-API-Schlüssel ein.</div>`;
+    return;
+  }
+
+  const eingabe = $('#claudeFrage').value.trim();
   const knopf   = $('#claudeKnopf');
   knopf.disabled = true;
   knopf.textContent = 'Claude denkt nach …';
@@ -410,55 +456,29 @@ async function frageClaude(f) {
   let gesammelt = '';
 
   try {
-    const antw = await fetch(window.NUS2_API || '/api/erklaeren', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: f.id, frage: eingabe }),
+    await window.NUS2_CLAUDE.erklaere({
+      schluessel,
+      eintrag: f,
+      frage: eingabe,
       signal: laeuft.signal,
+      aufText: (stueck) => {
+        gesammelt += stueck;
+        textZiel.innerHTML = markdown(gesammelt) + '<span class="cursor"></span>';
+      },
     });
-
-    if (!antw.ok || !antw.body) {
-      if (antw.status === 404 && !window.NUS2_API) {
-        throw new Error('Die Erklärfunktion ist auf dieser Seite nicht eingerichtet. '
-          + 'Siehe README – Abschnitt „Öffentlich stellen“.');
-      }
-      const fehler = await antw.text().catch(() => '');
-      throw new Error(fehler || `Server antwortete mit ${antw.status}`);
-    }
-
-    const leser = antw.body.getReader();
-    const dec = new TextDecoder();
-    let puffer = '';
-
-    for (;;) {
-      const { value, done } = await leser.read();
-      if (done) break;
-      puffer += dec.decode(value, { stream: true });
-      const teile = puffer.split('\n\n');
-      puffer = teile.pop();
-      for (const block of teile) {
-        for (const zeile of block.split('\n')) {
-          if (!zeile.startsWith('data: ')) continue;
-          const nutz = JSON.parse(zeile.slice(6));
-          if (nutz.fehler) throw new Error(nutz.fehler);
-          if (nutz.text) {
-            gesammelt += nutz.text;
-            textZiel.innerHTML = markdown(gesammelt) + '<span class="cursor"></span>';
-          }
-        }
-      }
-    }
     textZiel.innerHTML = markdown(gesammelt) || '<p>(keine Antwort erhalten)</p>';
 
   } catch (e) {
-    if (e.name === 'AbortError') return;
-    ausgabe.innerHTML = `<div class="banner falsch"><span class="etikett">Fehler</span>${escape(e.message)}</div>`;
+    if (e.name === 'AbortError' || laeuft?.signal.aborted) return;
+    const text = window.NUS2_CLAUDE.fehlertext(e);
+    ausgabe.innerHTML = `<div class="banner falsch"><span class="etikett">Fehler</span>${escape(text)}</div>`;
   } finally {
     laeuft = null;
     knopf.disabled = false;
     knopf.textContent = '+ Erkläre mir das';
   }
 }
+
 
 /* ── Navigation & Start ───────────────────────────────────────────── */
 function gehe(delta) {
@@ -496,6 +516,16 @@ async function start() {
     sichereFortschritt();
     nachFilterwechsel();
   };
+
+  $('#schluesselSpeichern').onclick = speichereSchluessel;
+  $('#schluesselEingabe').onkeydown = (e) => { if (e.key === 'Enter') speichereSchluessel(); };
+  $('#schluesselLoeschen').onclick = () => {
+    setzeSchluessel('');
+    $('#schluesselMeldung').textContent = '';
+    zeichneSchluesselfeld();
+    zeichneKarte();
+  };
+  zeichneSchluesselfeld();
 
   let timer;
   $('#suche').oninput = (e) => {

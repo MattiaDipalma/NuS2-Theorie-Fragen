@@ -2,4 +2,6 @@ node_modules/
 .env
 npm-debug.log*
 .DS_Store
-.wrangler/
+
+# von `npm run build` erzeugt
+web/claude.js
