@@ -22,6 +22,8 @@ Danach <http://localhost:3000> im Browser öffnen.
 Ohne API-Schlüssel funktioniert alles ausser der Erklärfunktion – Fragen, Lösungen,
 Filter und Fortschritt laufen rein im Browser.
 
+Wie die Seite öffentlich erreichbar wird, steht unten unter *Öffentlich stellen*.
+
 ---
 
 ## Was die Seite kann
@@ -98,17 +100,81 @@ Antworten werden gestreamt, erscheinen also Wort für Wort.
 
 ---
 
+## Öffentlich stellen
+
+Die Seite selbst ist statisch und läuft auf **GitHub Pages**. Nur die Erklärfunktion
+braucht einen Server, weil der API-Schlüssel niemals in den Browser darf – dafür
+liegt im Ordner `worker/` ein kleiner **Cloudflare Worker**.
+
+### 1 · Seite veröffentlichen
+
+`.github/workflows/pages.yml` lädt bei jedem Push auf `main` den Ordner `web/` zu
+GitHub Pages hoch. Einmalig muss die Quelle umgestellt werden:
+
+> Repository → **Settings** → **Pages** → *Build and deployment* → **Source: GitHub Actions**
+
+Danach ist die Seite erreichbar unter
+<https://mattiadipalma.github.io/NuS2-Theorie-Fragen/>.
+
+Ab hier funktioniert alles ausser der Erklärfunktion – Fragen, Bilder, Filter und
+Fortschritt laufen rein im Browser.
+
+### 2 · Erklärfunktion veröffentlichen
+
+```bash
+cd worker
+npm install
+npx wrangler login                          # einmalig, öffnet den Browser
+npx wrangler secret put ANTHROPIC_API_KEY   # Schlüssel eingeben, wird nicht im Repo gespeichert
+npx wrangler deploy
+```
+
+`wrangler deploy` gibt am Ende eine Adresse aus, etwa
+`https://nus2-erklaeren.dein-name.workers.dev`.
+
+### 3 · Seite und Worker verbinden
+
+In `web/konfig.js` diese Adresse eintragen – mit `/api/erklaeren` am Ende:
+
+```js
+window.NUS2_API = 'https://nus2-erklaeren.dein-name.workers.dev/api/erklaeren';
+```
+
+Committen, pushen, fertig. Beim lokalen Betrieb (`npm start`) den Wert leer lassen,
+dann beantwortet `server.js` die Anfragen selbst.
+
+### Was der Worker macht
+
+Er nimmt nur die Frage-Nummer und deine Rückfrage entgegen. Fragetext, Antwort-
+schlüssel und Bild holt er sich selbst von der veröffentlichten Seite – der Browser
+kann also keinen beliebigen Text an die Claude-API durchreichen.
+
+Gegen Missbrauch der API-Kosten sind zwei Bremsen eingebaut, beide in
+`worker/wrangler.toml` einstellbar:
+
+* `ERLAUBTE_HERKUNFT` – nur die eigene Seite darf den Worker aufrufen.
+* `ANFRAGEN_PRO_STUNDE` – Obergrenze pro IP-Adresse (Standard 40).
+
+Wer es strenger will, ergänzt im Cloudflare-Dashboard unter *Security → WAF →
+Rate limiting rules* eine zusätzliche Regel. Mit `CLAUDE_MODELL = "claude-sonnet-5"`
+lassen sich die Kosten pro Anfrage deutlich senken.
+
+---
+
 ## Aufbau
 
 ```
-server.js                  Express-Server: liefert /web aus + POST /api/erklaeren
+server.js                  Express-Server für lokal: liefert /web aus + POST /api/erklaeren
 web/
   index.html               Seitengerüst
   style.css                Gestaltung, Hell- und Dunkelmodus
   app.js                   Filter, Fragekarte, Bewertung, Claude-Stream
+  konfig.js                Adresse des Claude-Backends (leer = lokaler Server)
   fragen.json              176 Fragen mit Typ, Thema, Punkten, Antwortschlüssel
   fragen/*.png             Frage- und Lösungsbilder (aus den PDFs geschnitten)
   fragen/ki/*.jpg          verkleinerte Fassungen für die Claude-Anfrage
+worker/                    Cloudflare Worker: dasselbe /api/erklaeren für die
+                           veröffentlichte Seite
 werkzeuge/extrahieren.py   erzeugt fragen.json und die Bilder neu aus den PDFs
 *.pdf                      die beiden Moodle-Exporte (Quelle der Daten)
 ```

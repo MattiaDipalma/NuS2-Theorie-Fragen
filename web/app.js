@@ -410,7 +410,7 @@ async function frageClaude(f) {
   let gesammelt = '';
 
   try {
-    const antw = await fetch('/api/erklaeren', {
+    const antw = await fetch(window.NUS2_API || '/api/erklaeren', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: f.id, frage: eingabe }),
@@ -418,6 +418,10 @@ async function frageClaude(f) {
     });
 
     if (!antw.ok || !antw.body) {
+      if (antw.status === 404 && !window.NUS2_API) {
+        throw new Error('Die Erklärfunktion ist auf dieser Seite nicht eingerichtet. '
+          + 'Siehe README – Abschnitt „Öffentlich stellen“.');
+      }
       const fehler = await antw.text().catch(() => '');
       throw new Error(fehler || `Server antwortete mit ${antw.status}`);
     }
