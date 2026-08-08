@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NuS 2 – Theoriefragen Trainer</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+</head>
+<body>
+<button id="menuKnopf" class="menu-knopf" aria-label="Menü">☰</button>
+
+<div class="shell">
+  <!-- ───────────────────────── Seitenleiste ───────────────────────── -->
+  <aside class="seitenleiste" id="seitenleiste">
+    <div class="pfad">eth&gt;nus-2&gt;theoriefragen</div>
+    <h1 class="marke">NuS 2 Trainer</h1>
+
+    <button class="knopf breit" id="themaKnopf">☾ Dunkelmodus</button>
+
+    <div class="statbox" id="statbox">$ lade …</div>
+
+    <div class="gruppe">
+      <div class="gruppen-titel">Modus</div>
+      <div class="pills" id="filterModus"></div>
+    </div>
+
+    <div class="gruppe">
+      <div class="gruppen-titel">Quelle</div>
+      <div class="pills" id="filterQuelle"></div>
+    </div>
+
+    <div class="gruppe">
+      <div class="gruppen-titel">Fragetyp</div>
+      <div class="pills" id="filterTyp"></div>
+    </div>
+
+    <div class="gruppe">
+      <div class="gruppen-titel">Thema</div>
+      <div class="pills" id="filterThema"></div>
+    </div>
+
+    <div class="gruppe">
+      <div class="gruppen-titel">Fortschritt</div>
+      <div class="balken"><div class="balken-fuellung" id="balken"></div></div>
+      <div class="fortschritt-text" id="fortschrittText"></div>
+      <button class="knopf breit gefahr" id="resetKnopf">Fortschritt zurücksetzen</button>
+    </div>
+
+    <div class="fussnote">
+      Fragen &amp; Lösungen stammen aus den Moodle-Tests zur Vorlesung
+      227-0002-00L Netzwerke und Schaltungen II.
+    </div>
+  </aside>
+
+  <!-- ───────────────────────── Hauptbereich ───────────────────────── -->
+  <main class="haupt">
+    <header class="kopf">
+      <div class="kopf-titel">Theoriefragen Trainer</div>
+      <div class="kopf-meta" id="kopfMeta"></div>
+    </header>
+
+    <div class="werkzeuge">
+      <input type="search" id="suche" class="suche" placeholder="Fragen durchsuchen …" autocomplete="off">
+      <button class="knopf" id="zufallKnopf">⤮ Zufall</button>
+    </div>
+
+    <section id="karte"></section>
+
+    <nav class="blaettern">
+      <button class="knopf" id="zurueckKnopf">‹ Zurück</button>
+      <span class="blaettern-info" id="blaetternInfo"></span>
+      <button class="knopf" id="weiterKnopf">Weiter ›</button>
+    </nav>
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
