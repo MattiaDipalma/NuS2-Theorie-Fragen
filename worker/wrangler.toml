@@ -1,0 +1,20 @@
+name = "nus2-erklaeren"
+main = "index.js"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Wo die statische Seite liegt – von dort holt der Worker fragen.json und die Bilder.
+SEITE = "https://mattiadipalma.github.io/NuS2-Theorie-Fragen"
+
+# Nur diese Seiten dürfen den Worker aufrufen (Komma-getrennt).
+ERLAUBTE_HERKUNFT = "https://mattiadipalma.github.io,http://localhost:3000"
+
+# Obergrenze pro IP und Stunde.
+ANFRAGEN_PRO_STUNDE = "40"
+
+# Optional: anderes Modell, z. B. "claude-sonnet-5" für weniger Kosten.
+# CLAUDE_MODELL = "claude-opus-5"
+
+# ANTHROPIC_API_KEY wird NICHT hier eingetragen, sondern als Secret gesetzt:
+#   npx wrangler secret put ANTHROPIC_API_KEY

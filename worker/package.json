@@ -1,0 +1,17 @@
+{
+  "name": "nus2-erklaeren-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker: Erklärfunktion für den NuS-2-Theoriefragen-Trainer.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
