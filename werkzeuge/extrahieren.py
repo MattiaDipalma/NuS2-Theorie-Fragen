@@ -10,6 +10,13 @@ cremefarbenes Kaestchen. Genau an diesen Fuellfarben werden die Fragen getrennt.
 Jede Frage wird als Bildausschnitt gerendert, damit Formeln und Schaltbilder
 exakt erhalten bleiben; parallel wird der Text fuer Suche, Themenzuordnung und
 als Kontext fuer Claude extrahiert.
+
+Wichtig: Die PDFs sind Moodle-Exporte einer *korrigierten* Abgabe. In den
+Fragekaestchen stehen deshalb bereits die Loesungsmarken - ein rotes
+FontAwesome-Kreuz an der falschen und ein gruenes Haekchen an der richtigen
+Antwort. Diese Marken werden vor dem Rendern aus den Fragekaestchen entfernt
+(nur dort - die Musterloesung bleibt vollstaendig), damit die Fragebilder
+aussehen wie im unbeantworteten Test.
 """
 import pymupdf, re, json, os, unicodedata, glob
 from collections import Counter
@@ -21,6 +28,10 @@ os.makedirs(OUT, exist_ok=True)
 DPI, BLUE, CREAM = 110, (0.902, 0.949, 0.957), (1.0, 0.965, 0.906)
 SOURCES = [("mc", "Alle MC Fragen NUS 2_ Revisione tentativo _ Moodle Course.pdf", "MC-Test"),
            ("cl", "Clicker Fragen aus der Vorlesung_ Revisione tentativo _ Moodle Course.pdf", "Clicker")]
+
+# Loesungsmarken in den Fragekaestchen: das rote Kreuz ist ein FontAwesome-Zeichen,
+# das gruene Haekchen eine Vektorgrafik in genau dieser Fuellfarbe.
+KREUZ_ZEICHEN, HAEKCHEN_FARBE = "\uf05c", (0.565, 0.408, 0.184)
 
 def norm(s):
     s = unicodedata.normalize("NFKC", s).replace("\xa0", " ")
@@ -38,6 +49,44 @@ def boxes(page, colour):
         if not any(k.y0 - 2 <= r.y0 and r.y1 <= k.y1 + 2 for k in kept):
             kept.append(r)
     return kept
+
+def marken_rechtecke(page, kasten):
+    """Rechtecke aller Loesungsmarken innerhalb eines Fragekaestchens."""
+    out = []
+    for blk in page.get_text("dict", clip=kasten)["blocks"]:
+        if blk["type"] != 0:
+            continue
+        for line in blk["lines"]:
+            for s in line["spans"]:
+                if "FontAwesome" in s["font"] and KREUZ_ZEICHEN in s["text"]:
+                    out.append(pymupdf.Rect(s["bbox"]))
+    for dr in page.get_drawings():
+        r, fl = dr["rect"], dr.get("fill")
+        if fl and tuple(round(x, 3) for x in fl) == HAEKCHEN_FARBE and r.intersects(kasten):
+            out.append(pymupdf.Rect(r))
+    return out
+
+def entferne_loesungsmarken(doc):
+    """Loescht die Kreuze und Haekchen aus allen Fragekaestchen des Dokuments.
+
+    Nur die Marken selbst werden entfernt; Hintergrund, Tabellenlinien, die
+    leeren Auswahlkreise und der Fragetext bleiben unveraendert stehen. Die
+    cremefarbenen Loesungskaestchen werden nicht angefasst.
+    """
+    entfernt = 0
+    for page in doc:
+        marken = [m for kasten in boxes(page, BLUE) for m in marken_rechtecke(page, kasten)]
+        if not marken:
+            continue
+        for m in marken:
+            page.add_redact_annot(m + (-1.5, -1.5, 1.5, 1.5), fill=False)
+        # IF_COVERED: nur Vektorgrafik loeschen, die ganz im Rechteck liegt – sonst
+        # verschwaende das grosse Kaestchen selbst, das die Marken ja beruehrt.
+        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
+                              graphics=pymupdf.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
+                              text=pymupdf.PDF_REDACT_TEXT_REMOVE)
+        entfernt += len(marken)
+    return entfernt
 
 def collect(doc, colour):
     """Document-order list of runs; a run is [(page_index, rect), ...] merged across page breaks."""
@@ -59,6 +108,7 @@ def collect(doc, colour):
 data, dropped = [], 0
 for tag, fname, label in SOURCES:
     doc = pymupdf.open(BASE + fname)
+    print(f"{label}: {entferne_loesungsmarken(doc)} Lösungsmarken aus den Fragen entfernt")
 
     class L(list):
         pass

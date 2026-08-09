@@ -55,15 +55,18 @@ const kuerze = (s, n) => (s && s.length > n ? s.slice(0, n) + ' …' : s || '');
 
 /* ── Erklär-Endpunkt (Server-Sent Events) ──────────────────────────── */
 app.post('/api/erklaeren', async (req, res) => {
+  // Zuerst der Schlüssel: daran erkennt die Seite, dass der Server zwar läuft,
+  // die Erklärfunktion aber noch nicht eingerichtet ist.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(503).json({
+      fehler: 'Kein ANTHROPIC_API_KEY gesetzt. Siehe README – Abschnitt „Claude-API einrichten“, '
+        + 'oder hinterlege in der Seitenleiste einen eigenen Schlüssel im Browser.',
+    });
+  }
+
   const { id, frage } = req.body ?? {};
   const eintrag = fragen.get(id);
   if (!eintrag) return res.status(404).json({ fehler: 'Frage nicht gefunden.' });
-
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(503).json({
-      fehler: 'Kein ANTHROPIC_API_KEY gesetzt. Siehe README – Abschnitt „Claude-API einrichten“.',
-    });
-  }
 
   const inhalt = [];
 
