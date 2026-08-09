@@ -26,6 +26,39 @@ Wie die Seite öffentlich erreichbar wird, steht unten unter *Öffentlich stelle
 
 ---
 
+## Keine Lösungen vor der Antwort
+
+Die beiden PDFs sind Moodle-Exporte einer bereits **korrigierten** Abgabe. Moodle
+zeichnet darin jede Antwortmöglichkeit an: ein rotes Kreuz an der falschen, ein
+grünes Häkchen an der richtigen. Wer die Fragebilder unverändert übernimmt, sieht
+die Lösung also, bevor er antwortet.
+
+`werkzeuge/extrahieren.py` entfernt diese Marken deshalb aus den Fragekästchen,
+bevor die Bilder gerendert werden – 1298 Stück, alle im MC-Test. Übrig bleiben die
+leeren Auswahlkreise, der Fragetext, die Formeln und die Schaltbilder, also genau
+das Bild eines unbeantworteten Tests. Die cremefarbenen Musterlösungskästchen
+bleiben vollständig; sie erscheinen erst nach *Antwort prüfen* oder *Lösung zeigen*.
+
+Nach jedem Neu-Erzeugen lohnt eine Gegenprobe:
+
+```bash
+python - <<'PY'
+from PIL import Image; import glob
+ZIEL = {"rotes Kreuz": (202,49,32), "grünes Häkchen": (144,104,47)}
+for name, z in ZIEL.items():
+    treffer = [f for f in sorted(glob.glob("web/fragen/*-f*.png"))
+               if sum(c for c, p in (Image.open(f).convert("RGB").getcolors(1<<20) or [])
+                      if all(abs(a-b) <= 26 for a, b in zip(p, z))) > 40]
+    print(name, len(treffer), treffer[:5])
+PY
+```
+
+Beim grünen Häkchen muss `0` herauskommen. Beim roten Kreuz bleiben fünf Bilder
+übrig – dort ist das Rot Teil der Zeichnung (etwa die Primärwicklung im
+Transformatorbild), keine Lösungsmarke.
+
+---
+
 ## Was die Seite kann
 
 **Fragen üben**
@@ -65,7 +98,18 @@ umschalten.
 ## Claude-API einrichten
 
 Die Erklärfunktion (`+ Erkläre mir das`) schickt die Frage an die Claude API und
-streamt die Antwort zurück in die Seite.
+streamt die Antwort zurück in die Seite. Die Seite sucht sich dafür selbst einen
+von drei Wegen – in dieser Reihenfolge:
+
+| Weg | Wann | Wo liegt der Schlüssel |
+|---|---|---|
+| Cloudflare Worker | `web/konfig.js` ist ausgefüllt | beim Worker |
+| lokaler Server | die Seite läuft über `npm start` | in der Umgebung von `server.js` |
+| direkt aus dem Browser | sonst, sobald ein Schlüssel hinterlegt ist | im `localStorage` des Browsers |
+
+Welcher Weg gerade aktiv ist, steht in der Seitenleiste unter *Claude-Erklärung*.
+
+### Lokal
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."    # Schlüssel: https://console.anthropic.com
@@ -74,6 +118,19 @@ npm start
 
 Alternativ eine Datei `.env` anlegen (siehe `.env.example`) und mit
 `node --env-file=.env server.js` starten.
+
+### Eigener Schlüssel im Browser
+
+Auf GitHub Pages gibt es keinen Server, der einen Schlüssel verwahren könnte.
+Deshalb lässt sich in der Seitenleiste unter *Claude-Erklärung* ein eigener
+Anthropic-Schlüssel hinterlegen. Der Browser spricht dann direkt mit
+`api.anthropic.com` (mit dem Kopf `anthropic-dangerous-direct-browser-access`,
+ohne den die API Anfragen aus dem Browser ablehnt).
+
+Der Schlüssel liegt dabei im `localStorage` und ist damit für jedes Skript auf
+der Seite lesbar. Für den eigenen Rechner ist das in Ordnung, für ein geteiltes
+Gerät nicht – dort besser den Worker aufsetzen. Über *Schlüssel löschen* ist er
+wieder weg.
 
 ### Wie die Anfrage aussieht
 
@@ -116,8 +173,10 @@ GitHub Pages hoch. Einmalig muss die Quelle umgestellt werden:
 Danach ist die Seite erreichbar unter
 <https://mattiadipalma.github.io/NuS2-Theorie-Fragen/>.
 
-Ab hier funktioniert alles ausser der Erklärfunktion – Fragen, Bilder, Filter und
-Fortschritt laufen rein im Browser.
+Ab hier funktionieren Fragen, Bilder, Filter und Fortschritt. Für die
+Erklärfunktion gibt es zwei Möglichkeiten: entweder jeder trägt seinen eigenen
+Schlüssel im Browser ein (siehe oben, nichts weiter einzurichten) – oder du
+stellst einmal den Worker auf, dann brauchen die Nutzer gar keinen Schlüssel.
 
 ### 2 · Erklärfunktion veröffentlichen
 
@@ -187,6 +246,12 @@ genau daran wurden die Fragen getrennt. Jede Frage wird als Bildausschnitt aus d
 gerendert statt in HTML nachgebaut: So bleiben Formeln, Schaltbilder und
 Zeigerdiagramme exakt erhalten. Parallel liegt der extrahierte Text vor – für Suche,
 Themenzuordnung und als Kontext für Claude.
+
+Aus den hellblauen Kästchen werden vorher die Lösungsmarken entfernt (siehe
+*Keine Lösungen vor der Antwort*). Das rote Kreuz ist ein FontAwesome-Zeichen, das
+grüne Häkchen eine Vektorgrafik in einer festen Füllfarbe – beide lassen sich
+darüber sicher erkennen und mit einer Redaktion Punkt für Punkt herauslösen, ohne
+Hintergrund, Tabellenlinien oder Text anzutasten.
 
 Fragen, die im PDF über einen Seitenumbruch laufen, werden aus mehreren Ausschnitten
 zusammengesetzt.

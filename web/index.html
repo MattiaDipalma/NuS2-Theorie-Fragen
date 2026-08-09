@@ -41,6 +41,26 @@
     </div>
 
     <div class="gruppe">
+      <div class="gruppen-titel">Claude-Erklärung</div>
+      <div class="api-status" id="apiStatus">wird geprüft …</div>
+      <button class="knopf breit" id="apiKnopf">API-Schlüssel hinterlegen</button>
+      <div class="api-formular" id="apiFormular" hidden>
+        <input type="password" id="apiSchluessel" class="api-eingabe"
+               placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+        <div class="aktionen">
+          <button class="knopf primaer" id="apiSpeichern">Speichern</button>
+          <button class="knopf" id="apiAbbrechen">Abbrechen</button>
+        </div>
+        <p class="api-hinweis">
+          Der Schlüssel bleibt nur in diesem Browser und geht direkt an
+          <code>api.anthropic.com</code>. Nur auf einem Gerät verwenden, dem du vertraust.
+          Schlüssel gibt es unter console.anthropic.com.
+        </p>
+      </div>
+      <button class="knopf breit gefahr" id="apiLoeschen" hidden>Schlüssel löschen</button>
+    </div>
+
+    <div class="gruppe">
       <div class="gruppen-titel">Fortschritt</div>
       <div class="balken"><div class="balken-fuellung" id="balken"></div></div>
       <div class="fortschritt-text" id="fortschrittText"></div>

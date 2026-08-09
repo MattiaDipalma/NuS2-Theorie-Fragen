@@ -2,7 +2,12 @@
 'use strict';
 
 const SPEICHER = 'nus2-trainer-v1';
+const SCHLUESSEL_SPEICHER = SPEICHER + '-apischluessel';
 const $  = (s) => document.querySelector(s);
+
+/* Direkter Weg zur Claude-API, falls kein Backend eingerichtet ist. */
+const CLAUDE_ADRESSE = 'https://api.anthropic.com/v1/messages';
+const CLAUDE_MODELL  = 'claude-opus-5';
 
 let FRAGEN   = [];
 let auswahl  = [];
@@ -390,7 +395,221 @@ function zeigeLoesung(f, selbstkontrolle) {
   }
 }
 
-/* ── Claude ───────────────────────────────────────────────────────── */
+/* ── Claude ───────────────────────────────────────────────────────────
+ *
+ * Die Erklärfunktion kann über drei Wege laufen – in dieser Reihenfolge:
+ *
+ *   1. „server“    – window.NUS2_API zeigt auf den Cloudflare Worker.
+ *   2. „lokal“     – die Seite läuft über `npm start`, server.js antwortet
+ *                    unter api/erklaeren.
+ *   3. „schluessel“– kein Backend vorhanden, dafür liegt ein eigener
+ *                    API-Schlüssel im Browser: die Anfrage geht direkt an
+ *                    api.anthropic.com.
+ *
+ * Auf GitHub Pages gibt es keinen Server. Eine Anfrage an api/erklaeren
+ * beantwortet GitHub dort mit einer 405-Fehlerseite – genau die landete
+ * früher als HTML-Klumpen in der Fehlermeldung. Deshalb wird der Weg jetzt
+ * einmal geprüft, statt blind gepostet.
+ */
+const SYSTEM_PROMPT = `Du bist ein geduldiger Tutor für die ETH-Vorlesung
+"Netzwerke und Schaltungen II" (Wechselstromlehre, komplexe Zeiger, Impedanzen,
+Ortskurven, Resonanz, Filter, Leistung, Drehstrom, transiente Vorgänge,
+Laplace-Transformation, Fourier-Analyse).
+
+Du bekommst eine Multiple-Choice-Frage als Bild (mit Schaltbildern, Zeigerdiagrammen
+und Formeln) sowie den daraus extrahierten Text und den offiziellen Antwortschlüssel.
+
+Regeln für deine Antwort:
+- Antworte **immer auf Deutsch**, auch wenn die Frage anders gestellt wird.
+- Erkläre den Lösungsweg, nicht nur das Ergebnis. Nenne die zugrunde liegende
+  Regel oder Formel und wende sie auf die konkrete Schaltung an.
+- Wenn nach einer bestimmten Aussage oder Antwortmöglichkeit gefragt wird,
+  gehe genau darauf ein und erkläre auch, warum die anderen nicht stimmen.
+- Halte dich kurz: normalerweise 3 bis 6 Absätze. Keine Wiederholung der Frage.
+- Formeln als gut lesbaren Text mit Unicode-Zeichen schreiben, z. B.
+  "U_eff = û/√2", "Z = R + jωL", "φ = arctan(ωL/R)". Kein LaTeX, keine
+  Dollarzeichen, keine \\frac-Befehle – der Text wird als reines Markdown angezeigt.
+- Widersprich der Musterlösung nicht stillschweigend. Wenn sie dir falsch
+  erscheint, sag das ausdrücklich und begründe es.`;
+
+const kuerze = (s, n) => (s && s.length > n ? s.slice(0, n) + ' …' : s || '');
+
+/* ── API-Schlüssel im Browser ──────────────────────────────────────── */
+function schluessel() {
+  try { return localStorage.getItem(SCHLUESSEL_SPEICHER) || ''; }
+  catch { return ''; }
+}
+function setzeSchluessel(wert) {
+  try {
+    if (wert) localStorage.setItem(SCHLUESSEL_SPEICHER, wert);
+    else localStorage.removeItem(SCHLUESSEL_SPEICHER);
+  } catch {}
+  backendGemerkt = null;
+  zeichneApiBereich();
+}
+
+/* ── Welcher Weg steht zur Verfügung? ──────────────────────────────── */
+let backendGemerkt = null;
+let lokalGeprueft  = null;
+
+/** server.js beantwortet eine leere Anfrage mit JSON, GitHub Pages mit einer
+ *  HTML-Fehlerseite. Daran lässt sich beides trennen. Antwortet server.js mit
+ *  503, läuft er zwar, hat aber keinen ANTHROPIC_API_KEY. */
+async function lokalesBackendDa() {
+  if (lokalGeprueft !== null) return lokalGeprueft;
+  try {
+    const antw = await fetch('api/erklaeren', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: '' }),
+    });
+    lokalGeprueft = !(antw.headers.get('content-type') || '').includes('application/json')
+      ? 'nein'
+      : antw.status === 503 ? 'ohne-schluessel' : 'ja';
+  } catch {
+    lokalGeprueft = 'nein';
+  }
+  return lokalGeprueft;
+}
+
+async function ermittleBackend() {
+  if (backendGemerkt) return backendGemerkt;
+  const lokal = window.NUS2_API ? 'nein' : await lokalesBackendDa();
+  if (window.NUS2_API)      backendGemerkt = 'server';
+  else if (lokal === 'ja')  backendGemerkt = 'lokal';
+  else if (schluessel())    backendGemerkt = 'schluessel';
+  // Server läuft, aber ohne Schlüssel – dann wenigstens die klare Meldung
+  // von server.js zeigen, statt stumm nichts anzubieten.
+  else if (lokal === 'ohne-schluessel') backendGemerkt = 'lokal';
+  else                      backendGemerkt = 'keins';
+  return backendGemerkt;
+}
+
+/* ── Anfrage über Worker bzw. lokalen Server ───────────────────────── */
+async function stromVomBackend(adresse, f, eingabe, signal) {
+  const antw = await fetch(adresse, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: f.id, frage: eingabe }),
+    signal,
+  });
+  if (!antw.ok || !antw.body) throw new Error(await lesbarerFehler(antw));
+  return antw.body;
+}
+
+/* ── Anfrage direkt an api.anthropic.com ───────────────────────────── */
+async function bildAlsBase64(id) {
+  const antw = await fetch(`fragen/ki/${encodeURIComponent(id)}.jpg`);
+  if (!antw.ok) return null;
+  const bytes = new Uint8Array(await antw.arrayBuffer());
+  let roh = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    roh += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(roh);
+}
+
+async function stromDirekt(f, eingabe, signal) {
+  const inhalt = [];
+
+  // Bild der Frage mitschicken – nur so kann Claude Schaltbilder lesen.
+  const bild = await bildAlsBase64(f.id);
+  if (bild) {
+    inhalt.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: bild } });
+  }
+
+  const loesung = f.schluessel?.length
+    ? `\nOffizielle Bewertung der vier Aussagen (von oben nach unten): ${f.schluessel.join(', ')}`
+    : f.loesungBuchstaben?.length
+      ? `\nRichtige Antwort(en): ${f.loesungBuchstaben.join(', ')}`
+      : '';
+
+  inhalt.push({
+    type: 'text',
+    text:
+      `Frage ${f.nr} aus "${f.quelle}" · Thema: ${f.thema} · ${f.punkte} Punkte\n\n` +
+      `--- Extrahierter Fragetext (kann bei Formeln fehlerhaft sein, das Bild ist massgeblich) ---\n` +
+      `${kuerze(f.suchtext, 6000)}${loesung}`,
+    cache_control: { type: 'ephemeral' },   // Folgefragen zur selben Frage werden billiger
+  });
+
+  inhalt.push({
+    type: 'text',
+    text: eingabe
+      ? `Meine Frage dazu: ${kuerze(eingabe, 2000)}`
+      : 'Erkläre mir diese Frage und die Musterlösung.',
+  });
+
+  const antw = await fetch(CLAUDE_ADRESSE, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': schluessel(),
+      'anthropic-version': '2023-06-01',
+      // Ohne diesen Kopf lehnt die API Anfragen aus dem Browser ab (CORS).
+      'anthropic-dangerous-direct-browser-access': 'true',
+      'anthropic-beta': 'server-side-fallback-2026-07-01',
+    },
+    body: JSON.stringify({
+      model: CLAUDE_MODELL,
+      max_tokens: 4000,
+      system: SYSTEM_PROMPT,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'medium' },
+      // Lehnt ein Sicherheitsfilter die Anfrage ab, beantwortet sie
+      // automatisch ein Ersatzmodell statt einfach abzubrechen.
+      fallbacks: 'default',
+      stream: true,
+      messages: [{ role: 'user', content: inhalt }],
+    }),
+    signal,
+  });
+
+  if (antw.status === 401 || antw.status === 403) {
+    throw new Error('Der hinterlegte API-Schlüssel wurde abgelehnt. '
+      + 'Bitte in der Seitenleiste unter „Claude-Erklärung“ prüfen oder neu eintragen.');
+  }
+  if (!antw.ok || !antw.body) throw new Error(await lesbarerFehler(antw));
+  return antw.body;
+}
+
+/** Fehlertext aus einer Antwort ziehen – ohne rohes HTML in die Seite zu kippen. */
+async function lesbarerFehler(antw) {
+  const roh = (await antw.text().catch(() => '')).trim();
+  try {
+    const daten = JSON.parse(roh);
+    const text = daten.fehler || daten.error?.message;
+    if (text) return text;
+  } catch {}
+  if (!roh || roh.startsWith('<')) {
+    return `Der Server antwortete mit ${antw.status} ${antw.statusText || ''}`.trim() + '.';
+  }
+  return kuerze(roh, 300);
+}
+
+/* ── SSE lesen: eigenes Backend-Protokoll und Anthropic-Protokoll ──── */
+async function lies(strom, beiEreignis) {
+  const leser = strom.getReader();
+  const dec = new TextDecoder();
+  let puffer = '';
+  for (;;) {
+    const { value, done } = await leser.read();
+    if (done) break;
+    puffer += dec.decode(value, { stream: true });
+    const bloecke = puffer.split('\n\n');
+    puffer = bloecke.pop();
+    for (const block of bloecke) {
+      for (const zeile of block.split('\n')) {
+        if (!zeile.startsWith('data:')) continue;
+        const nutz = zeile.slice(5).trim();
+        if (!nutz || nutz === '[DONE]') continue;
+        beiEreignis(JSON.parse(nutz));
+      }
+    }
+  }
+}
+
+/* ── Erklärung anfordern ───────────────────────────────────────────── */
 let laeuft = null;
 
 async function frageClaude(f) {
@@ -399,6 +618,17 @@ async function frageClaude(f) {
   const eingabe = $('#claudeFrage').value.trim();
   const ausgabe = $('#claudeAusgabe');
   const knopf   = $('#claudeKnopf');
+
+  const weg = await ermittleBackend();
+  if (weg === 'keins') {
+    ausgabe.innerHTML = `<div class="banner neutral"><span class="etikett">Nicht eingerichtet</span>
+      Diese Seite hat kein Erklär-Backend. Hinterlege einen eigenen Anthropic-API-Schlüssel,
+      dann fragt der Browser Claude direkt.
+      <div class="aktionen"><button class="knopf primaer" id="apiJetzt">API-Schlüssel hinterlegen</button></div></div>`;
+    $('#apiJetzt').onclick = () => oeffneApiFormular();
+    return;
+  }
+
   knopf.disabled = true;
   knopf.textContent = 'Claude denkt nach …';
 
@@ -408,56 +638,81 @@ async function frageClaude(f) {
 
   laeuft = new AbortController();
   let gesammelt = '';
+  const anhaengen = (stueck) => {
+    gesammelt += stueck;
+    textZiel.innerHTML = markdown(gesammelt) + '<span class="cursor"></span>';
+  };
 
   try {
-    const antw = await fetch(window.NUS2_API || '/api/erklaeren', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: f.id, frage: eingabe }),
-      signal: laeuft.signal,
-    });
-
-    if (!antw.ok || !antw.body) {
-      if (antw.status === 404 && !window.NUS2_API) {
-        throw new Error('Die Erklärfunktion ist auf dieser Seite nicht eingerichtet. '
-          + 'Siehe README – Abschnitt „Öffentlich stellen“.');
-      }
-      const fehler = await antw.text().catch(() => '');
-      throw new Error(fehler || `Server antwortete mit ${antw.status}`);
-    }
-
-    const leser = antw.body.getReader();
-    const dec = new TextDecoder();
-    let puffer = '';
-
-    for (;;) {
-      const { value, done } = await leser.read();
-      if (done) break;
-      puffer += dec.decode(value, { stream: true });
-      const teile = puffer.split('\n\n');
-      puffer = teile.pop();
-      for (const block of teile) {
-        for (const zeile of block.split('\n')) {
-          if (!zeile.startsWith('data: ')) continue;
-          const nutz = JSON.parse(zeile.slice(6));
-          if (nutz.fehler) throw new Error(nutz.fehler);
-          if (nutz.text) {
-            gesammelt += nutz.text;
-            textZiel.innerHTML = markdown(gesammelt) + '<span class="cursor"></span>';
-          }
+    if (weg === 'schluessel') {
+      const strom = await stromDirekt(f, eingabe, laeuft.signal);
+      let fehlerText = null;
+      await lies(strom, (e) => {
+        if (e.type === 'content_block_delta' && e.delta?.type === 'text_delta') anhaengen(e.delta.text);
+        else if (e.type === 'error') fehlerText = e.error?.message || 'Unbekannter API-Fehler.';
+        else if (e.type === 'message_delta' && e.delta?.stop_reason === 'refusal') {
+          fehlerText = 'Claude hat die Beantwortung dieser Frage abgelehnt.';
+        } else if (e.type === 'message_delta' && e.delta?.stop_reason === 'max_tokens') {
+          anhaengen('\n\n_(Antwort wurde gekürzt – frag gezielter nach.)_');
         }
-      }
+      });
+      if (fehlerText) throw new Error(fehlerText);
+    } else {
+      const adresse = weg === 'server' ? window.NUS2_API : 'api/erklaeren';
+      const strom = await stromVomBackend(adresse, f, eingabe, laeuft.signal);
+      let fehlerText = null;
+      await lies(strom, (e) => {
+        if (e.fehler) fehlerText = e.fehler;
+        else if (e.text) anhaengen(e.text);
+      });
+      if (fehlerText) throw new Error(fehlerText);
     }
+
     textZiel.innerHTML = markdown(gesammelt) || '<p>(keine Antwort erhalten)</p>';
 
   } catch (e) {
     if (e.name === 'AbortError') return;
-    ausgabe.innerHTML = `<div class="banner falsch"><span class="etikett">Fehler</span>${escape(e.message)}</div>`;
+    const grund = e instanceof TypeError
+      ? 'Die Claude-API war nicht erreichbar. Internetverbindung oder Schlüssel prüfen.'
+      : e.message;
+    ausgabe.innerHTML = `<div class="banner falsch"><span class="etikett">Fehler</span>${escape(grund)}</div>`;
   } finally {
     laeuft = null;
     knopf.disabled = false;
     knopf.textContent = '+ Erkläre mir das';
   }
+}
+
+/* ── Seitenleiste: API-Schlüssel verwalten ─────────────────────────── */
+function oeffneApiFormular() {
+  $('#seitenleiste').classList.add('offen');
+  $('#apiFormular').hidden = false;
+  $('#apiKnopf').hidden = true;
+  const feld = $('#apiSchluessel');
+  feld.value = schluessel();
+  feld.focus();
+}
+function schliesseApiFormular() {
+  $('#apiFormular').hidden = true;
+  $('#apiKnopf').hidden = false;
+  $('#apiSchluessel').value = '';
+}
+
+async function zeichneApiBereich() {
+  const status = $('#apiStatus');
+  const hat = !!schluessel();
+  $('#apiKnopf').textContent = hat ? 'Schlüssel ändern' : 'API-Schlüssel hinterlegen';
+  $('#apiLoeschen').hidden = !hat;
+
+  status.textContent = 'wird geprüft …';
+  const weg = await ermittleBackend();
+  status.textContent = {
+    server:     'läuft über den eingerichteten Worker',
+    lokal:      'läuft über den lokalen Server',
+    schluessel: 'läuft über deinen eigenen Schlüssel',
+    keins:      'nicht eingerichtet – Schlüssel hinterlegen',
+  }[weg];
+  status.dataset.zustand = weg === 'keins' ? 'aus' : 'an';
 }
 
 /* ── Navigation & Start ───────────────────────────────────────────── */
@@ -490,6 +745,21 @@ async function start() {
     zeichneKarte();
   };
   $('#menuKnopf').onclick = () => $('#seitenleiste').classList.toggle('offen');
+
+  $('#apiKnopf').onclick      = () => oeffneApiFormular();
+  $('#apiAbbrechen').onclick  = () => schliesseApiFormular();
+  $('#apiSpeichern').onclick  = () => {
+    const wert = $('#apiSchluessel').value.trim();
+    if (!wert) return;
+    setzeSchluessel(wert);
+    schliesseApiFormular();
+  };
+  $('#apiSchluessel').onkeydown = (e) => { if (e.key === 'Enter') $('#apiSpeichern').click(); };
+  $('#apiLoeschen').onclick = () => {
+    if (!confirm('Hinterlegten API-Schlüssel aus diesem Browser löschen?')) return;
+    setzeSchluessel('');
+  };
+
   $('#resetKnopf').onclick = () => {
     if (!confirm('Gesamten Lernfortschritt löschen?')) return;
     fortschritt = {};
@@ -519,6 +789,7 @@ async function start() {
   berechneAuswahl(false);
   zeichneSeitenleiste();
   zeichneKarte();
+  zeichneApiBereich();
 }
 
 start();
